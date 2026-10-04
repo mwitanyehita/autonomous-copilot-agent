@@ -1,0 +1,109 @@
+# JARVIS Terminal Assistant (Hybrid Local + Cheap Cloud)
+
+This project gives you a Linux terminal AI assistant that runs locally for free and automatically falls back to a cheap cloud model when the task needs stronger reasoning.
+
+It is designed to be practical and inexpensive:
+
+- Local-first: uses Ollama for free local LLMs
+- Smart fallback: if `ANTHROPIC_API_KEY` is present, the agent can use Claude Haiku for harder reasoning
+- Safe by default: shell commands are executed only when you explicitly ask for them
+- Persistent memory: stores chat history in SQLite
+- Lightweight: works on an ordinary Linux workstation
+
+## Recommended setup
+
+Use this layer stack:
+
+- Ollama local model: `llama3.1:8b` or `mistral:7b`
+- Optional fallback: Claude Haiku via Anthropic API
+
+This gives you a free everyday assistant plus stronger reasoning when needed.
+
+## Quick start
+
+1. Install Python dependencies:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+2. Install Ollama:
+
+```bash
+curl -fsSL https://ollama.com/install.sh | sh
+```
+
+Then pull a model:
+
+```bash
+ollama pull llama3.1:8b
+```
+
+3. Copy example environment file:
+
+```bash
+cp .env.example .env
+```
+
+4. Edit `.env`:
+
+```dotenv
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_MODEL=llama3.1:8b
+USE_ANTHROPIC_FALLBACK=true
+ANTHROPIC_API_KEY=
+ANTHROPIC_MODEL=claude-3-5-haiku-20241022
+```
+
+5. Run the agent:
+
+```bash
+python jarvis.py
+```
+
+## How it works
+
+- The agent checks whether a local Ollama model is available.
+- If the prompt is straightforward, it answers locally.
+- If the prompt requires deeper reasoning, it may use Anthropic Claude Haiku.
+- The assistant can also read files, list directories, and execute commands when you explicitly ask.
+
+## Safety notes
+
+- Shell execution is intentionally user-driven.
+- The agent will not execute commands without a clear command request.
+- For local automation, keep the assistant running in your personal Linux environment only.
+
+## Example conversations
+
+```text
+You: show me my disk usage
+Assistant: I can check that with a shell command.
+
+You: tell me which files changed in my project today
+Assistant: I can inspect the git status and recent files.
+
+You: summarize this project folder and suggest improvements
+Assistant: I will read the project files and produce a concise overview.
+```
+
+## Cost profile
+
+- Local free mode: $0
+- Anthropic fallback: low cost if used sparingly
+- Typical usage: a few dollars per month for heavy reasoning, or $0 if you stay local-only
+
+## Files
+
+- `jarvis.py` - interactive CLI
+- `app/agent.py` - orchestration logic
+- `app/tools.py` - shell/file utilities
+- `app/llm.py` - Ollama + Anthropic hybrid client
+- `app/memory.py` - SQLite memory
+- `app/config.py` - settings
+
+## License
+
+MIT

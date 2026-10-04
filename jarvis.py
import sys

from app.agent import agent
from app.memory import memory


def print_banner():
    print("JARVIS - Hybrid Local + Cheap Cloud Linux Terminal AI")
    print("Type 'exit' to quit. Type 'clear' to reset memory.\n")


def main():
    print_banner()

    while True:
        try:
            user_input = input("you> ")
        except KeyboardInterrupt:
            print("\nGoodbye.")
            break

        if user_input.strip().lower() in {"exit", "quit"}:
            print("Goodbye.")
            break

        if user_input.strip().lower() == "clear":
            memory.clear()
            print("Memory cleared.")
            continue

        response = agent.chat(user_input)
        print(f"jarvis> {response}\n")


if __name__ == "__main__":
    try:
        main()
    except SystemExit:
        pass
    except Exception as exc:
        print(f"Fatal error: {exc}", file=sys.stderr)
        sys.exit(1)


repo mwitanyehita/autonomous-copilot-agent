@@ -1,0 +1,39 @@
+import json
+from typing import Any
+
+from .llm import HybridLLM
+from .memory import memory
+
+
+class JarvisAgent:
+    def __init__(self):
+        self.llm = HybridLLM()
+
+    def chat(self, user_message: str) -> str:
+        memory.add("user", user_message)
+
+        history = memory.get_recent(10)
+        context = "\n".join(f"{msg['role']}: {msg['content']}" for msg in history)
+        prompt = (
+            "You are JARVIS, a helpful Linux terminal AI assistant. "
+            "You should be concise, practical, and act like a local expert. "
+            "You can help with shell tasks, file operations, coding, analysis, and project guidance.\n\n"
+            f"Conversation history:\n{context}\n\n"
+            f"User: {user_message}\n"
+            "Assistant:"
+        )
+
+        response = self.llm.respond(prompt)
+        memory.add("assistant", response)
+        return response
+
+    def handle_tool_request(self, user_message: str, tool_name: str, tool_args: dict[str, Any] | None = None):
+        from .tools import terminal_tools
+
+        tool = getattr(terminal_tools, tool_name)
+        args = tool_args or {}
+        return tool(**args)
+
+
+agent = JarvisAgent()
+

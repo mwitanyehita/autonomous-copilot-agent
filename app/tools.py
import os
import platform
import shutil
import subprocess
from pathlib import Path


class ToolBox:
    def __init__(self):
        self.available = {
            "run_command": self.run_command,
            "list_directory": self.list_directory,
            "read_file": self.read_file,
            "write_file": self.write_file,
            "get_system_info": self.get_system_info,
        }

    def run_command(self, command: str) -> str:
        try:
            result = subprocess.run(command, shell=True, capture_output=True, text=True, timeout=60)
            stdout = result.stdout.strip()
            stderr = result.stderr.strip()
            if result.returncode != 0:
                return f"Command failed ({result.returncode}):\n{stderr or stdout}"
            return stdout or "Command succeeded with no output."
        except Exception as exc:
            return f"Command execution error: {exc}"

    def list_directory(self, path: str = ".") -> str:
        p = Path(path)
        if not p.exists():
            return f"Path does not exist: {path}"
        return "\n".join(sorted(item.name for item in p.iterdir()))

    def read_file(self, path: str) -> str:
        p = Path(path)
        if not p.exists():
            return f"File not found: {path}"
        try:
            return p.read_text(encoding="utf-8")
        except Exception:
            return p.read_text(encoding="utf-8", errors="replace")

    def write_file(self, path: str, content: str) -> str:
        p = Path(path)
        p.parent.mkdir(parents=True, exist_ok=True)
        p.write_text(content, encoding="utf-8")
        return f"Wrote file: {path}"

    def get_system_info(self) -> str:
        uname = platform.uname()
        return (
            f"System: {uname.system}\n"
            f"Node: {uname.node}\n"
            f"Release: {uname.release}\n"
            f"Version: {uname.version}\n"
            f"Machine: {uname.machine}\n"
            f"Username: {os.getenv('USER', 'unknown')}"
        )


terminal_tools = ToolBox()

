@@ -1,0 +1,151 @@
+import json
+import subprocess
+from pathlib import Path
+
+import requests
+
+from .config import config
+
+
+class OllamaClient:
+    def __init__(self, base_url: str, model: str):
+        self.base_url = base_url.rstrip("/")
+        self.model = model
+
+    def is_available(self) -> bool:
+        try:
+            r = requests.get(f"{self.base_url}/api/tags", timeout=10)
+            r.raise_for_status()
+            return True
+        except Exception:
+            return False
+
+    def generate(self, prompt: str) -> str:
+        payload = {
+            "model": self.model,
+            "prompt": prompt,
+            "stream": False,
+            "options": {"temperature": 0.3},
+        }
+        r = requests.post(f"{self.base_url}/api/generate", json=payload, timeout=90)
+        r.raise_for_status()
+        body = r.json()
+        return body.get("response", "")
+
+
+class AnthropicClient:
+    def __init__(self, api_key: str | None, model: str):
+        self.api_key = api_key
+        self.model = model
+
+    def is_available(self) -> bool:
+        return bool(self.api_key)
+
+    def generate(self, prompt: str) -> str:
+        if not self.api_key:
+            raise RuntimeError("No Anthropic API key provided")
+
+        headers = {
+            "x-api-key": self.api_key,
+            "content-type": "application/json",
+            "anthropic-version": "2023-06-01",
+        }
+
+        payload = {
+            "model": self.model,
+            "max_tokens": 800,
+            "messages": [{"role": "user", "content": prompt}],
+        }
+
+        r = requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers=headers,
+            json=payload,
+            timeout=90,
+        )
+        r.raise_for_status()
+        body = r.json()
+        text = ""
+        for block in body.get("content", []):
+            if block.get("type") == "text":
+                text += block.get("text", "")
+        return text.strip() or json.dumps(body, indent=2)
+
+
+class HybridLLM:
+    def __init__(self):
+        self.ollama = OllamaClient(config.ollama_base_url, config.ollama_model)
+        self.anthropic = AnthropicClient(config.anthropic_api_key, config.anthropic_model)
+
+    def decide_model(self, prompt: str) -> str:
+        higher_reasoning = any(word in prompt.lower() for word in [
+            "analyze",
+            "debug",
+            "plan",
+            "architecture",
+            "strategy",
+            "summarize large",
+            "compare",
+            "reason",
+            "fix"
+        ])
+        if higher_reasoning and config.use_anthropic_fallback and self.anthropic.is_available():
+            return "anthropic"
+        return "ollama"
+
+    def respond(self, prompt: str) -> str:
+        if self.ollama.is_available():
+            model_choice = self.decide_model(prompt)
+            if model_choice == "anthropic" and self.anthropic.is_available():
+                return self.anthropic.generate(prompt)
+            return self.ollama.generate(prompt)
+
+        if config.use_anthropic_fallback and self.anthropic.is_available():
+            return self.anthropic.generate(prompt)
+
+        raise RuntimeError("No LLM backend available. Install Ollama or set ANTHROPIC_API_KEY.")
+
+
+class ToolRunner:
+    @staticmethod
+    def run_command(command: str) -> str:
+        result = subprocess.run(
+            command,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        output = result.stdout.strip() or ""
+        error = result.stderr.strip() or ""
+        if result.returncode != 0:
+            return f"Command failed ({result.returncode}):\n{error or output}"
+        return output if output else "Command completed successfully."
+
+    @staticmethod
+    def list_directory(path: str = ".") -> str:
+        p = Path(path)
+        if not p.exists():
+            return f"Path does not exist: {path}"
+        return "\n".join(sorted(item.name for item in p.iterdir()))
+
+    @staticmethod
+    def read_file(path: str) -> str:
+        p = Path(path)
+        if not p.exists():
+            return f"File not found: {path}"
+        return p.read_text(encoding="utf-8", errors="replace")
+
+    @staticmethod
+    def write_file(path: str, content: str) -> str:
+        p = Path(path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(content, encoding="utf-8")
+        return f"Wrote to {path}"
+
+    @staticmethod
+    def get_system_info() -> str:
+        return ToolRunner.run_command("uname -a && echo '---' && whoami && echo '---' && df -h /")
+
+
+llm = HybridLLM()
