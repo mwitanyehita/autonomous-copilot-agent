@@ -1,0 +1,116 @@
+import json
+from typing import Any
+
+import requests
+
+from .config import config
+
+
+class OllamaClient:
+    def __init__(self, base_url: str, model: str) -> None:
+        self.base_url = base_url.rstrip("/")
+        self.model = model
+
+    def is_available(self) -> bool:
+        try:
+            response = requests.get(f"{self.base_url}/api/tags", timeout=10)
+            response.raise_for_status()
+            return True
+        except Exception:
+            return False
+
+    def generate(self, prompt: str) -> str:
+        payload = {
+            "model": self.model,
+            "prompt": prompt,
+            "stream": False,
+            "options": {"temperature": 0.3},
+        }
+        response = requests.post(
+            f"{self.base_url}/api/generate",
+            json=payload,
+            timeout=90,
+        )
+        response.raise_for_status()
+        body = response.json()
+        return body.get("response", "")
+
+
+class AnthropicClient:
+    def __init__(self, api_key: str | None, model: str) -> None:
+        self.api_key = api_key
+        self.model = model
+
+    def is_available(self) -> bool:
+        return bool(self.api_key)
+
+    def generate(self, prompt: str) -> str:
+        if not self.api_key:
+            raise RuntimeError("No Anthropic API key configured")
+
+        headers = {
+            "x-api-key": self.api_key,
+            "content-type": "application/json",
+            "anthropic-version": "2023-06-01",
+        }
+        payload = {
+            "model": self.model,
+            "max_tokens": 800,
+            "messages": [{"role": "user", "content": prompt}],
+        }
+        response = requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers=headers,
+            json=payload,
+            timeout=90,
+        )
+        response.raise_for_status()
+        body = response.json()
+        text_parts = []
+        for block in body.get("content", []):
+            if block.get("type") == "text":
+                text_parts.append(block.get("text", ""))
+        return "\n".join(text_parts).strip() or json.dumps(body, indent=2)
+
+
+class LLMRouter:
+    def __init__(self) -> None:
+        self.ollama = OllamaClient(config.ollama_base_url, config.ollama_model)
+        self.anthropic = AnthropicClient(config.anthropic_api_key, config.anthropic_model)
+
+    def choose_backend(self, prompt: str) -> str:
+        higher_reasoning_keywords = [
+            "analyze",
+            "debug",
+            "plan",
+            "strategy",
+            "architecture",
+            "reason",
+            "compare",
+            "fix",
+            "investigate",
+            "explain deeply",
+        ]
+        lowered = prompt.lower()
+        if (
+            config.use_anthropic_fallback
+            and self.anthropic.is_available()
+            and any(keyword in lowered for keyword in higher_reasoning_keywords)
+        ):
+            return "anthropic"
+        return "ollama"
+
+    def generate(self, prompt: str) -> str:
+        if self.ollama.is_available():
+            backend = self.choose_backend(prompt)
+            if backend == "anthropic" and self.anthropic.is_available():
+                return self.anthropic.generate(prompt)
+            return self.ollama.generate(prompt)
+
+        if config.use_anthropic_fallback and self.anthropic.is_available():
+            return self.anthropic.generate(prompt)
+
+        raise RuntimeError("No LLM backend is available. Install Ollama or set ANTHROPIC_API_KEY.")
+
+
+router = LLMRouter()
