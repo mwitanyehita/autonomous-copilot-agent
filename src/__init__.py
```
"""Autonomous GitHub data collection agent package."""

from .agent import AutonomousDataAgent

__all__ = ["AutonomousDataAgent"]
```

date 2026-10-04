@@ -1,0 +1,47 @@
+import argparse
+import os
+import sys
+from pathlib import Path
+
+from src.agent import AutonomousDataAgent
+from src.config import AgentConfig
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Autonomous GitHub data collector with Copilot analysis")
+    parser.add_argument("--repo", default=None, help="GitHub repo to monitor, e.g. owner/repo")
+    parser.add_argument("--interval", type=int, default=None, help="Polling interval in seconds")
+    parser.add_argument("--output-dir", default=None, help="Directory to store snapshots")
+    parser.add_argument("--copilot-model", default=None, help="Copilot model name to use")
+    parser.add_argument("--once", action="store_true", help="Collect a single snapshot and exit")
+    return parser
+
+
+def main() -> int:
+    args = build_parser().parse_args()
+
+    config = AgentConfig.from_env(
+        repo_override=args.repo,
+        interval_override=args.interval,
+        output_dir_override=args.output_dir,
+        model_override=args.copilot_model,
+    )
+
+    try:
+        agent = AutonomousDataAgent(config)
+        if args.once:
+            agent.collect_once()
+        else:
+            agent.run_forever()
+    except KeyboardInterrupt:
+        print("\nStopping autonomous agent...", file=sys.stderr)
+        return 0
+    except Exception as exc:
+        print(f"Fatal agent error: {exc}", file=sys.stderr)
+        return 1
+
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

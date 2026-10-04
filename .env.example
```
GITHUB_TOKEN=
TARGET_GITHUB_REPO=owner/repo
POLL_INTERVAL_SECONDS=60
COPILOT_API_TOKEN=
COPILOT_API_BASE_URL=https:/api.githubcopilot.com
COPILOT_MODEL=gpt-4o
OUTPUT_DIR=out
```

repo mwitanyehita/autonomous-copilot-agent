@@ -1,0 +1,85 @@
+# Autonomous GitHub Copilot Data Agent
+
+This project creates a lightweight autonomous Python agent that collects real-time GitHub repository activity and optionally uses a GitHub Copilot-compatible API to summarize or reason over the data.
+
+Important: GitHub Copilot is not a traditional streaming data source. In practice, this project treats it as an LLM analysis layer on top of real-time GitHub API data. The agent polls GitHub for live activity, stores snapshots, and calls the Copilot endpoint when credentials are configured.
+
+## Features
+
+- Polls a GitHub repository for live activity
+- Collects recent events, commits, issues, and pull requests
+- Stores snapshot data in JSON files
+- Uses Copilot-compatible chat completions for analysis and summaries
+- Runs continuously with configurable polling intervals
+- Gracefully degrades if Copilot credentials are missing
+
+## Requirements
+
+- Python 3.10+
+- A GitHub token with access to the target repository
+- Optional: Copilot API token or a Copilot-compatible proxy endpoint
+
+## Quick start
+
+1. Create a virtual environment and install dependencies:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+2. Copy the environment file:
+
+```bash
+cp .env.example .env
+```
+
+3. Fill in your environment values:
+
+```dotenv
+GITHUB_TOKEN=ghp_xxx
+TARGET_GITHUB_REPO=owner/repo
+POLL_INTERVAL_SECONDS=60
+COPILOT_API_TOKEN=ghu_xxx
+COPILOT_API_BASE_URL=https://api.githubcopilot.com
+COPILOT_MODEL=gpt-4o
+OUTPUT_DIR=out
+```
+
+4. Run once manually:
+
+```bash
+python main.py --once
+```
+
+5. Run continuously:
+
+```bash
+python main.py
+```
+
+## Architecture
+
+- `main.py` handles CLI execution
+- `src/config.py` reads settings from environment variables
+- `src/data_collector.py` fetches live data from GitHub
+- `src/copilot_client.py` calls a Copilot-compatible chat completion API
+- `src/agent.py` coordinates the autonomous loop
+
+## Notes
+
+- If the Copilot endpoint is unavailable, the agent still continues collecting data.
+- If you are behind a proxy or enterprise environment, set `COPILOT_API_BASE_URL` to your endpoint.
+- For GitHub Enterprise or custom Copilot gateways, adjust the base URL and headers accordingly.
+
+## Example output
+
+The agent writes files under `out/` such as:
+
+- `out/2026-10-04T12-00-00Z.json`
+- `out/summary/2026-10-04T12-00-00Z-summary.txt`
+
+## License
+
+MIT

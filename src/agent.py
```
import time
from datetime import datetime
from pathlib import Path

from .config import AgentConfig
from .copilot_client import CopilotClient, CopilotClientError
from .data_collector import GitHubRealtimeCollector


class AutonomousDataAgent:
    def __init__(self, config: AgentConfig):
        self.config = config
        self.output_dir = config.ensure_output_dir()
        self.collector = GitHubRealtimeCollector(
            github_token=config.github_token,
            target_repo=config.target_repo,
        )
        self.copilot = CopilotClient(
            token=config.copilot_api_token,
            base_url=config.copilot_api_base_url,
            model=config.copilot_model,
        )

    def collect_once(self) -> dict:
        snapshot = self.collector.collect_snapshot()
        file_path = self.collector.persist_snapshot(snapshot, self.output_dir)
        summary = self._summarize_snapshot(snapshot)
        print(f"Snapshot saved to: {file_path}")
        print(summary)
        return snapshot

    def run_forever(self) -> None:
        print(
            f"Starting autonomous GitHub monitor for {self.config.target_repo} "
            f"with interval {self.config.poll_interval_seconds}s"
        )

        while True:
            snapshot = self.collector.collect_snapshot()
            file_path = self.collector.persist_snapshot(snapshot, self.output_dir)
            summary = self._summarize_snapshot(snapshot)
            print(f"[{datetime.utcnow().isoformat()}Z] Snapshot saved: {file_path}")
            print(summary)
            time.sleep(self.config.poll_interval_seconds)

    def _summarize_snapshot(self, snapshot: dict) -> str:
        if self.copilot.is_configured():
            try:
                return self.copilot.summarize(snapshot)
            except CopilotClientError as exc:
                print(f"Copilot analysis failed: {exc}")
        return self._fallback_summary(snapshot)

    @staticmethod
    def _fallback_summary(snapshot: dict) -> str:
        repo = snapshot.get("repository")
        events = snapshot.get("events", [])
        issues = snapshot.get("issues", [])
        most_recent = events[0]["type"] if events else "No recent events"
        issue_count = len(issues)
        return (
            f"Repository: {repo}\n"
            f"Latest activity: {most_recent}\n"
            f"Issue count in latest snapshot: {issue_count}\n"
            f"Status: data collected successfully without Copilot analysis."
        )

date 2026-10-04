@@ -1,0 +1,80 @@
+import json
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+import requests
+
+
+class GitHubRealtimeCollector:
+    def __init__(self, github_token: str, target_repo: str):
+        self.github_token = github_token
+        self.target_repo = target_repo
+        self.headers = {
+            "Authorization": f"Bearer {self.github_token}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        }
+
+    def collect_snapshot(self) -> dict[str, Any]:
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        repo_url = f"https://api.github.com/repos/{self.target_repo}"
+        events_url = f"https://api.github.com/repos/{self.target_repo}/events"
+        issues_url = f"https://api.github.com/repos/{self.target_repo}/issues?state=all&per_page=10"
+
+        repo_data = self._get_json(repo_url)
+        events_data = self._get_json(events_url, timeout=30)
+        issues_data = self._get_json(issues_url, timeout=30)
+
+        latest_events = []
+        for item in events_data[:10]:
+            latest_events.append({
+                "type": item.get("type"),
+                "actor": item.get("actor", {}).get("login"),
+                "repo": item.get("repo", {}).get("name"),
+                "created_at": item.get("created_at"),
+                "payload": item.get("payload", {}),
+            })
+
+        latest_issues = []
+        for item in issues_data[:10]:
+            if "pull_request" in item:
+                continue
+            latest_issues.append({
+                "number": item.get("number"),
+                "title": item.get("title"),
+                "state": item.get("state"),
+                "user": item.get("user", {}).get("login"),
+                "created_at": item.get("created_at"),
+                "updated_at": item.get("updated_at"),
+            })
+
+        snapshot = {
+            "collected_at": now,
+            "repository": self.target_repo,
+            "repo_meta": {
+                "full_name": repo_data.get("full_name"),
+                "default_branch": repo_data.get("default_branch"),
+                "private": repo_data.get("private"),
+                "stars": repo_data.get("stargazers_count"),
+                "forks": repo_data.get("forks_count"),
+                "open_issues": repo_data.get("open_issues_count"),
+                "updated_at": repo_data.get("updated_at"),
+            },
+            "events": latest_events,
+            "issues": latest_issues,
+        }
+        return snapshot
+
+    def persist_snapshot(self, snapshot: dict[str, Any], output_dir: str | Path) -> Path:
+        output_path = Path(output_dir)
+        output_path.mkdir(parents=True, exist_ok=True)
+        timestamp = snapshot["collected_at"].replace(":", "-")
+        file_path = output_path / f"{timestamp}.json"
+        file_path.write_text(json.dumps(snapshot, indent=2, sort_keys=True), encoding="utf-8")
+        return file_path
+
+    def _get_json(self, url: str, timeout: int = 20) -> Any:
+        response = requests.get(url, headers=self.headers, timeout=timeout)
+        response.raise_for_status()
+        return response.json()
